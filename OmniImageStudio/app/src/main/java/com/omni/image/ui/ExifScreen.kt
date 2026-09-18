@@ -18,6 +18,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +52,26 @@ fun ExifScreen() {
     var loaded by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     val presets = remember { PresetStorage.listExifPresets(context) }
+
+    LaunchedEffect(Unit) {
+        val ch = ScreenChannels.exifUri
+        if (ch != null) {
+            ScreenChannels.exifUri = null
+            uri = ch
+            loaded = false
+            scope.launch(Dispatchers.IO) {
+                val raw = ExifEngine.getRawTags(context, ch)
+                val labels = ExifEngine.READ_TAGS.associate { it.first to it.second }
+                val editable = EDITABLE_TAGS.associateWith { raw[it] ?: "" }
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    values = editable
+                    message = "共 ${raw.size} 个 EXIF 字段"
+                    loaded = true
+                    RecentFiles.add(context, ch.toString(), ch.lastPathSegment ?: "image")
+                }
+            }
+        }
+    }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u ->
         if (u != null) {

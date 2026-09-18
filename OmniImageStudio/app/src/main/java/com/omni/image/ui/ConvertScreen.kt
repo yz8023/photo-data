@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +47,7 @@ fun ConvertScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var sourceUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var sourceName by remember { mutableStateOf("") }
     var format by remember { mutableStateOf("PNG") }
     var quality by remember { mutableStateOf(90f) }
@@ -57,8 +59,21 @@ fun ConvertScreen() {
     var loading by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf("") }
 
+    LaunchedEffect(Unit) {
+        val uri = ScreenChannels.convertUri
+        if (uri != null) {
+            ScreenChannels.convertUri = null
+            sourceUri = uri
+            bitmap = ConvertEngine.decodeUri(context, uri)
+            sourceName = uri.lastPathSegment ?: "image"
+            result = ""
+            RecentFiles.add(context, uri.toString(), sourceName)
+        }
+    }
+
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
+            sourceUri = uri
             bitmap = ConvertEngine.decodeUri(context, uri)
             sourceName = uri.lastPathSegment ?: "image"
             result = ""
@@ -169,11 +184,11 @@ fun ConvertScreen() {
                     quality = q.toFloat()
                 }
                 val outFormat = if (format == "XML_VECTOR") "PNG" else format
-                val file = FileSaver.saveBitmap(context, current, outFormat, quality.toInt(), "convert_${sourceName.substringAfterLast('.', "img")}")
-                val success = file.exists() && file.length() > 0
+                val file = FileSaver.saveBitmapToSource(context, sourceUri, current, outFormat, quality.toInt(), "convert")
+                val success = file.contentUri != null || (file.file != null && file.file!!.exists() && file.file!!.length() > 0)
                 withContext(Dispatchers.Main) {
                     loading = false
-                    result = if (success) "已保存: ${file.absolutePath} (${file.length() / 1024} KB)" else "转换失败，请重试"
+                    result = if (success) file.description else "转换失败，请重试"
                 }
             }
         }

@@ -23,6 +23,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +43,7 @@ import com.omni.image.util.PresetStorage
 import com.omni.image.util.RecentFiles
 import com.omni.image.util.UndoRedoStack
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -50,6 +52,7 @@ fun EditScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var sourceUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var loading by remember { mutableStateOf(false) }
     var cropRatio by remember { mutableStateOf("") }
     val undoStack = remember { UndoRedoStack() }
@@ -64,8 +67,45 @@ fun EditScreen() {
     var shadows by remember { mutableStateOf(0f) }
     var highlights by remember { mutableStateOf(0f) }
 
+    // 实时预览：滑块参数变化时防抖重算预览图
+    var livePreview by remember { mutableStateOf<Bitmap?>(null) }
+    var previewComputing by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val uri = ScreenChannels.editUri
+        if (uri != null) {
+            ScreenChannels.editUri = null
+            sourceUri = uri
+            bitmap = ConvertEngine.decodeUri(context, uri)
+            RecentFiles.add(context, uri.toString(), uri.lastPathSegment ?: "image")
+        }
+    }
+    LaunchedEffect(brightness, contrast, saturation, colorTemp, exposure, shadows, highlights, bitmap) {
+        val base = bitmap
+        if (base == null) {
+            livePreview = null
+            return@LaunchedEffect
+        }
+        val b = brightness; val c = contrast; val s = saturation
+        val t = colorTemp; val e = exposure; val sh = shadows; val hi = highlights
+        if (b == 0f && c == 1f && s == 1f && t == 0f && e == 0f && sh == 0f && hi == 0f) {
+            livePreview = base
+            return@LaunchedEffect
+        }
+        previewComputing = true
+        delay(180)
+        val result = withContext(Dispatchers.Default) {
+            FilterEngine.adjust(base, FilterEngine.AdjustParams().apply {
+                brightness = b; contrast = c; saturation = s
+                colorTemp = t; exposure = e; shadows = sh; highlights = hi
+            })
+        }
+        livePreview = result
+        previewComputing = false
+    }
+
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
+            sourceUri = uri
             bitmap = ConvertEngine.decodeUri(context, uri)
             RecentFiles.add(context, uri.toString(), uri.lastPathSegment ?: "image")
         }
@@ -107,12 +147,15 @@ fun EditScreen() {
         }
 
         ImagePreview(
-            bitmap = bitmap,
+            bitmap = livePreview ?: bitmap,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(200.dp)
                 .padding(top = 8.dp)
         )
+        if (previewComputing) {
+            Text("实时预览计算中…", fontSize = 11.sp, color = GlassOnBackground, modifier = Modifier.padding(top = 2.dp))
+        }
 
         if (bitmap != null) {
             SectionTitle("旋转 / 翻转")
@@ -221,20 +264,11 @@ fun EditScreen() {
             DampedSlider(shadows, { shadows = it }, 0f..1f, label = "阴影", display = "${(shadows * 100).toInt()}%")
             DampedSlider(highlights, { highlights = it }, 0f..1f, label = "高光", display = "${(highlights * 100).toInt()}%")
             GlassButton("应用调节参数", enabled = bitmap != null && loading.not()) {
-                val bmp = bitmap ?: return@GlassButton
-                loading = true
-                scope.launch(Dispatchers.IO) {
-                    val r = FilterEngine.adjust(bmp, FilterEngine.AdjustParams().apply {
-                        this.brightness = brightness
-                        this.contrast = contrast
-                        this.saturation = saturation
-                        this.colorTemp = colorTemp
-                        this.exposure = exposure
-                        this.shadows = shadows
-                        this.highlights = highlights
-                    })
-                    withContext(Dispatchers.Main) { commit(r); loading = false }
-                }
+                val base = bitmap ?: return@GlassButton
+                val preview = livePreview ?: base
+                commit(preview)
+                brightness = 0f; contrast = 1f; saturation = 1f; colorTemp = 0f
+                exposure = 0f; shadows = 0f; highlights = 0f
             }
 
             SectionTitle("曲线 / 色阶")
@@ -281,10 +315,10 @@ fun EditScreen() {
                 val bmp = bitmap ?: return@GlassButton
                 loading = true
                 scope.launch(Dispatchers.IO) {
-                    val file = FileSaver.saveBitmap(context, bmp, "PNG", 100, "edit")
+                    val result = FileSaver.saveBitmapToSource(context, sourceUri, bmp, "PNG", 100, "edit")
                     withContext(Dispatchers.Main) {
                         loading = false
-                        FileSaver.shareFile(context, file)
+                        FileSaver.shareUri(context, result)
                     }
                 }
             }

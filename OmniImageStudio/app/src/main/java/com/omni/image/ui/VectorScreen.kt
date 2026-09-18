@@ -45,6 +45,7 @@ fun VectorScreen() {
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var sourceUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var svgText by remember { mutableStateOf("") }
     var xmlText by remember { mutableStateOf("") }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
@@ -56,6 +57,7 @@ fun VectorScreen() {
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
+            sourceUri = uri
             bitmap = ConvertEngine.decodeUri(context, uri)
             RecentFiles.add(context, uri.toString(), uri.lastPathSegment ?: "image")
             svgText = ""
@@ -141,8 +143,8 @@ fun VectorScreen() {
                         GlassButton("导出 PNG", onClick = {
                             val p = preview ?: return@GlassButton
                             scope.launch(Dispatchers.IO) {
-                                val f = FileSaver.saveBitmap(context, p, "PNG", 100, "svg_render")
-                                withContext(Dispatchers.Main) { FileSaver.shareFile(context, f) }
+                                val f = FileSaver.saveBitmapToSource(context, sourceUri, p, "PNG", 100, "svg_render")
+                                withContext(Dispatchers.Main) { FileSaver.shareUri(context, f) }
                             }
                         }, modifier = Modifier.weight(1f))
                         Spacer(Modifier.width(8.dp))
@@ -168,8 +170,8 @@ fun VectorScreen() {
                         Spacer(Modifier.width(8.dp))
                         GlassButton("保存 .svg", onClick = {
                             scope.launch(Dispatchers.IO) {
-                                val f = FileSaver.saveText(context, svgText, "svg", "vectorized")
-                                withContext(Dispatchers.Main) { FileSaver.shareFile(context, f) }
+                                val f = FileSaver.saveTextToSource(context, sourceUri, svgText, "svg", "vectorized")
+                                withContext(Dispatchers.Main) { FileSaver.shareUri(context, f) }
                             }
                         }, modifier = Modifier.weight(1f))
                     }
@@ -185,8 +187,8 @@ fun VectorScreen() {
                         Spacer(Modifier.width(8.dp))
                         GlassButton("保存 .xml", onClick = {
                             scope.launch(Dispatchers.IO) {
-                                val f = FileSaver.saveText(context, xmlText, "xml", "vector_drawable")
-                                withContext(Dispatchers.Main) { FileSaver.shareFile(context, f) }
+                                val f = FileSaver.saveTextToSource(context, sourceUri, xmlText, "xml", "vector_drawable")
+                                withContext(Dispatchers.Main) { FileSaver.shareUri(context, f) }
                             }
                         }, modifier = Modifier.weight(1f))
                     }

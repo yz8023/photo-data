@@ -18,11 +18,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Column
+import com.omni.image.ui.theme.AuroraBackground
 
 @Composable
 fun AppScaffold(
@@ -34,8 +34,9 @@ fun AppScaffold(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Glass.gradient())
+            .background(androidx.compose.ui.graphics.Color(0xFF1A1B26))
     ) {
+        AuroraBackground(Modifier.fillMaxSize()) { }
         Column(Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier

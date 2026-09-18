@@ -6,6 +6,7 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 private val OmniColorScheme = darkColorScheme(
@@ -18,7 +19,12 @@ private val OmniColorScheme = darkColorScheme(
     onSecondary = GlassBackground,
     onBackground = GlassOnBackground,
     onSurface = GlassOnSurface,
-    error = GlassError
+    error = GlassError,
+    surfaceContainer = GlassSurfaceStrong,
+    surfaceContainerLow = Color(0x45FFFFFF),
+    surfaceContainerLowest = Color(0x2EFFFFFF),
+    surfaceContainerHigh = Color(0x4DFFFFFF),
+    surfaceContainerHighest = Color(0x5AFFFFFF)
 )
 
 private val OmniShapes = Shapes(

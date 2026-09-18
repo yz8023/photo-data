@@ -77,6 +77,7 @@ import com.omni.image.ui.theme.GlassSecondary
 import com.omni.image.ui.theme.GlassSuccess
 import com.omni.image.ui.theme.GlassSurface
 import com.omni.image.ui.theme.GlassSurfaceStrong
+import com.omni.image.ui.theme.liquidGlass
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -94,9 +95,9 @@ fun GlassCard(
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
     Card(
-        modifier = modifier,
+        modifier = modifier.liquidGlass(shape = RoundedCornerShape(cornerRadius)),
         shape = RoundedCornerShape(cornerRadius),
-        colors = CardDefaults.cardColors(containerColor = GlassSurfaceStrong),
+        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
         border = BorderStroke(1.dp, GlassOutline),
         content = { Column(Modifier.padding(16.dp), content = content) }
     )

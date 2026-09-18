@@ -48,6 +48,7 @@ fun WatermarkScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var sourceUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var watermarkBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var result by remember { mutableStateOf<Bitmap?>(null) }
     var loading by remember { mutableStateOf(false) }
@@ -71,6 +72,7 @@ fun WatermarkScreen() {
 
     val basePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
+            sourceUri = uri
             bitmap = ConvertEngine.decodeUri(context, uri)
             result = null
             RecentFiles.add(context, uri.toString(), uri.lastPathSegment ?: "image")
@@ -211,8 +213,8 @@ fun WatermarkScreen() {
                 GlassButton("保存结果", onClick = {
                     val r = result ?: return@GlassButton
                     scope.launch(Dispatchers.IO) {
-                        val f = FileSaver.saveBitmap(context, r, "PNG", 100, "watermarked")
-                        withContext(Dispatchers.Main) { FileSaver.shareFile(context, f) }
+                        val f = FileSaver.saveBitmapToSource(context, sourceUri, r, "PNG", 100, "watermarked")
+                        withContext(Dispatchers.Main) { FileSaver.shareUri(context, f) }
                     }
                 }, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(8.dp))

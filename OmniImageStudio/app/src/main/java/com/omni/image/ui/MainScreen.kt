@@ -64,6 +64,15 @@ sealed class Screen {
     object Watermark : Screen()
     object Canvas : Screen()
     object Batch : Screen()
+    object Album : Screen()
+    data class AlbumViewer(val photos: List<AlbumPhoto>, val startIndex: Int) : Screen()
+}
+
+/** 相册 → 功能页的图片传递通道（属性名与 [ConvertEngine] 无冲突）。 */
+object ScreenChannels {
+    @JvmStatic var editUri: android.net.Uri? = null
+    @JvmStatic var convertUri: android.net.Uri? = null
+    @JvmStatic var exifUri: android.net.Uri? = null
 }
 
 private data class Feature(
@@ -74,6 +83,7 @@ private data class Feature(
 )
 
 private val FEATURES = listOf(
+    Feature("相册系统", "像手机相册一样选取 / 查看图片", Icons.Filled.PhotoLibrary, Screen.Album),
     Feature("格式转换", "PNG/JPEG/WEBP/BMP/ICO · SVG/XML", Icons.Filled.SwapHoriz, Screen.Convert),
     Feature("裁剪与调节", "裁剪/旋转/滤镜/曲线/色阶", Icons.Filled.AutoFixHigh, Screen.Edit),
     Feature("EXIF 编辑", "查看/编辑/批量 · GPS 清除", Icons.Filled.Info, Screen.Exif),
@@ -81,7 +91,7 @@ private val FEATURES = listOf(
     Feature("水印系统", "文字/图片 · 平铺 · 盲水印", Icons.Filled.WaterDrop, Screen.Watermark),
     Feature("画布绘制", "对称画笔 · 图层 · 色盘", Icons.Filled.Brush, Screen.Canvas),
     Feature("批量处理", "批量转换/改名/水印/EXIF", Icons.Filled.Inventory2, Screen.Batch),
-    Feature("关于", "项目信息与开源说明", Icons.Filled.PhotoLibrary, Screen.Main)
+    Feature("关于", "项目信息与开源说明", Icons.Filled.Info, Screen.Main)
 )
 
 @Composable
@@ -118,6 +128,40 @@ fun MainScreen() {
         Screen.Batch -> AppScaffold("批量处理", onBack = { current = Screen.Main }) {
             AppScreenBox { BatchScreen() }
         }
+        Screen.Album -> AppScaffold("相册系统", onBack = { current = Screen.Main }) {
+            AppScreenBox {
+                AlbumScreen(
+                    onPick = { uri ->
+                        val photos = AlbumReader.loadPhotos(context)
+                        val idx = photos.indexOfFirst { it.uri == uri }
+                        if (idx >= 0) {
+                            current = Screen.AlbumViewer(photos, idx)
+                        }
+                    }
+                )
+            }
+        }
+        is Screen.AlbumViewer -> AppScaffold("图片查看", onBack = { current = Screen.Album }) {
+            AppScreenBox {
+                AlbumViewer(
+                    photos = screen.photos,
+                    startIndex = screen.startIndex,
+                    onBack = { current = Screen.Album },
+                    onEdit = { uri ->
+                        ScreenChannels.editUri = uri
+                        current = Screen.Edit
+                    },
+                    onConvert = { uri ->
+                        ScreenChannels.convertUri = uri
+                        current = Screen.Convert
+                    },
+                    onExif = { uri ->
+                        ScreenChannels.exifUri = uri
+                        current = Screen.Exif
+                    }
+                )
+            }
+        }
     }
 }
 
@@ -126,12 +170,16 @@ private fun Home(
     recentFiles: List<Pair<String, String>>,
     onNavigate: (Screen) -> Unit
 ) {
-    LazyColumn(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Glass.gradient()),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 24.dp)
+            .background(androidx.compose.ui.graphics.Color(0xFF1A1B26))
     ) {
+        com.omni.image.ui.theme.AuroraBackground(Modifier.fillMaxSize()) { }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 112.dp)
+        ) {
         item {
             Text(
                 "OmniImage Studio",
@@ -181,6 +229,47 @@ private fun Home(
             }
         }
     }
+        LiquidGlassShortcutBar(
+            onNavigate = onNavigate,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 8.dp)
+        )
+    }
+}
+
+@Composable
+private fun LiquidGlassShortcutBar(
+    onNavigate: (Screen) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shortcuts = listOf(
+        Triple(Icons.Filled.PhotoLibrary, "相册", Screen.Album),
+        Triple(Icons.Filled.SwapHoriz, "转换", Screen.Convert),
+        Triple(Icons.Filled.AutoFixHigh, "编辑", Screen.Edit),
+        Triple(Icons.Filled.Inventory2, "批量", Screen.Batch)
+    )
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(28.dp))
+            .background(androidx.compose.ui.graphics.Color(0x59FFFFFF))
+            .border(1.dp, Color(0x40FFFFFF), RoundedCornerShape(28.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        shortcuts.forEach { (icon, label, screen) ->
+            Column(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable { onNavigate(screen) }
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(icon, contentDescription = label, tint = Color(0xFFE6E6FF), modifier = Modifier.size(22.dp))
+                Text(label, color = GlassOnBackground, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp))
+            }
+        }
+    }
 }
 
 @Composable
@@ -190,8 +279,8 @@ private fun FeatureCard(feature: Feature, onClick: () -> Unit) {
             .fillMaxWidth()
             .padding(vertical = 6.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(GlassSurfaceStrong)
-            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(18.dp))
+            .background(androidx.compose.ui.graphics.Color(0x40FFFFFF))
+            .border(1.dp, Color(0x39FFFFFF), RoundedCornerShape(18.dp))
             .clickable(onClick = onClick)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
