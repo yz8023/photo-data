@@ -26,10 +26,10 @@ private val OmniColorScheme = darkColorScheme(
     outline = GlassOutline,
     outlineVariant = Color(0x59FFFFFF),
     surfaceContainer = GlassSurfaceStrong,
-    surfaceContainerLow = Color(0x45FFFFFF),
-    surfaceContainerLowest = Color(0x2EFFFFFF),
-    surfaceContainerHigh = Color(0x4DFFFFFF),
-    surfaceContainerHighest = Color(0x5AFFFFFF),
+    surfaceContainerLow = Color(0x66FFFFFF),
+    surfaceContainerLowest = Color(0x52FFFFFF),
+    surfaceContainerHigh = Color(0x8CFFFFFF),
+    surfaceContainerHighest = Color(0xA6FFFFFF),
     onSurfaceVariant = GlassMuted
 )
 

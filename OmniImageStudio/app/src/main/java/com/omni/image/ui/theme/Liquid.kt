@@ -79,8 +79,8 @@ private fun DrawScope.drawAurora(phase: Float, palette: List<Color>) {
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    blob.color.copy(alpha = 0.55f),
-                    blob.color.copy(alpha = 0.22f),
+                    blob.color.copy(alpha = 0.42f),
+                    blob.color.copy(alpha = 0.16f),
                     Color.Transparent
                 ),
                 center = Offset(x, y),

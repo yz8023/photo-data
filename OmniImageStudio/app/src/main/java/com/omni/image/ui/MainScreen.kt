@@ -1,5 +1,12 @@
 package com.omni.image.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,24 +44,32 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.omni.image.ui.theme.GlassOnBackground
 import com.omni.image.ui.theme.GlassPrimary
 import com.omni.image.ui.theme.GlassSecondary
 import com.omni.image.ui.theme.GlassSurfaceStrong
+import com.omni.image.ui.theme.GlassSurface
 import com.omni.image.util.RecentFiles
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 sealed class Screen {
     object Main : Screen()
@@ -66,6 +82,7 @@ sealed class Screen {
     object Batch : Screen()
     object Album : Screen()
     data class AlbumViewer(val photos: List<AlbumPhoto>, val startIndex: Int) : Screen()
+    data class RecentViewer(val uri: Uri, val name: String) : Screen()
 }
 
 /** 相册 → 功能页的图片传递通道（属性名与 [ConvertEngine] 无冲突）。 */
@@ -96,74 +113,132 @@ private val FEATURES = listOf(
 
 @Composable
 fun MainScreen() {
-    var current by remember { mutableStateOf<Screen>(Screen.Main) }
     val context = LocalContext.current
     val recent by remember {
         mutableStateOf(RecentFiles.list(context))
     }
 
+    // 简单返回栈：Album → AlbumViewer → Edit/Convert/Exif 均入栈，返回回到上一步。
+    val stack = remember { mutableStateOf(listOf<Screen>(Screen.Main)) }
+    val current = stack.value.last()
+
+    fun navigate(target: Screen) {
+        stack.value = stack.value + target
+    }
+    fun goBack() {
+        if (stack.value.size > 1) stack.value = stack.value.dropLast(1)
+    }
+
+    // 首次进入请求媒体读取权限，保证 MediaStore 能查到 RELATIVE_PATH（决定输出目录）。
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+    LaunchedEffect(Unit) {
+        val permission = if (Build.VERSION.SDK_INT >= 33)
+            Manifest.permission.READ_MEDIA_IMAGES
+        else
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        val granted = checkSelfPermission(context, permission)
+        if (!granted) permissionLauncher.launch(permission)
+    }
+
     when (val screen = current) {
         Screen.Main -> Home(
             recentFiles = recent,
-            onNavigate = { current = it }
+            onNavigate = { navigate(it) }
         )
-        Screen.Convert -> AppScaffold("格式转换", onBack = { current = Screen.Main }) {
+        Screen.Convert -> AppScaffold("格式转换", onBack = { goBack() }) {
             AppScreenBox { ConvertScreen() }
         }
-        Screen.Edit -> AppScaffold("裁剪与色彩调节", onBack = { current = Screen.Main }) {
+        Screen.Edit -> AppScaffold("裁剪与色彩调节", onBack = { goBack() }) {
             AppScreenBox { EditScreen() }
         }
-        Screen.Exif -> AppScaffold("EXIF 编辑", onBack = { current = Screen.Main }) {
+        Screen.Exif -> AppScaffold("EXIF 编辑", onBack = { goBack() }) {
             AppScreenBox { ExifScreen() }
         }
-        Screen.Vector -> AppScaffold("矢量化与 SVG", onBack = { current = Screen.Main }) {
+        Screen.Vector -> AppScaffold("矢量化与 SVG", onBack = { goBack() }) {
             AppScreenBox { VectorScreen() }
         }
-        Screen.Watermark -> AppScaffold("水印系统", onBack = { current = Screen.Main }) {
+        Screen.Watermark -> AppScaffold("水印系统", onBack = { goBack() }) {
             AppScreenBox { WatermarkScreen() }
         }
-        Screen.Canvas -> AppScaffold("画布绘制", onBack = { current = Screen.Main }) {
+        Screen.Canvas -> AppScaffold("画布绘制", onBack = { goBack() }) {
             AppScreenBox { CanvasScreen() }
         }
-        Screen.Batch -> AppScaffold("批量处理", onBack = { current = Screen.Main }) {
+        Screen.Batch -> AppScaffold("批量处理", onBack = { goBack() }) {
             AppScreenBox { BatchScreen() }
         }
-        Screen.Album -> AppScaffold("相册系统", onBack = { current = Screen.Main }) {
+        Screen.Album -> AppScaffold("相册系统", onBack = { goBack() }) {
             AppScreenBox {
                 AlbumScreen(
                     onPick = { uri ->
                         val photos = AlbumReader.loadPhotos(context)
                         val idx = photos.indexOfFirst { it.uri == uri }
                         if (idx >= 0) {
-                            current = Screen.AlbumViewer(photos, idx)
+                            navigate(Screen.AlbumViewer(photos, idx))
                         }
                     }
                 )
             }
         }
-        is Screen.AlbumViewer -> AppScaffold("图片查看", onBack = { current = Screen.Album }) {
+        is Screen.AlbumViewer -> AppScaffold("图片查看", onBack = { goBack() }) {
             AppScreenBox {
                 AlbumViewer(
                     photos = screen.photos,
                     startIndex = screen.startIndex,
-                    onBack = { current = Screen.Album },
+                    onBack = { goBack() },
                     onEdit = { uri ->
                         ScreenChannels.editUri = uri
-                        current = Screen.Edit
+                        navigate(Screen.Edit)
                     },
                     onConvert = { uri ->
                         ScreenChannels.convertUri = uri
-                        current = Screen.Convert
+                        navigate(Screen.Convert)
                     },
                     onExif = { uri ->
                         ScreenChannels.exifUri = uri
-                        current = Screen.Exif
+                        navigate(Screen.Exif)
                     }
                 )
             }
         }
+        is Screen.RecentViewer -> {
+            val photo = remember(screen.uri) {
+                AlbumPhoto(
+                    id = screen.uri.toString().hashCode().toLong(),
+                    uri = screen.uri,
+                    name = screen.name,
+                    dateTaken = 0L,
+                    size = 0L
+                )
+            }
+            AppScaffold("最近打开", onBack = { goBack() }) {
+                AppScreenBox {
+                    AlbumViewer(
+                        photos = listOf(photo),
+                        startIndex = 0,
+                        onBack = { goBack() },
+                        onEdit = { uri ->
+                            ScreenChannels.editUri = uri
+                            navigate(Screen.Edit)
+                        },
+                        onConvert = { uri ->
+                            ScreenChannels.convertUri = uri
+                            navigate(Screen.Convert)
+                        },
+                        onExif = { uri ->
+                            ScreenChannels.exifUri = uri
+                            navigate(Screen.Exif)
+                        }
+                    )
+                }
+            }
+        }
     }
 }
+
+private fun checkSelfPermission(context: android.content.Context, permission: String): Boolean =
+    context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
 
 @Composable
 private fun Home(
@@ -173,7 +248,7 @@ private fun Home(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(androidx.compose.ui.graphics.Color(0xFF1A1B26))
+            .background(androidx.compose.ui.graphics.Color(0xFF14151F))
     ) {
         com.omni.image.ui.theme.AuroraBackground(Modifier.fillMaxSize()) { }
         LazyColumn(
@@ -185,20 +260,19 @@ private fun Home(
                 "OmniImage Studio",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.ExtraBold,
-                color = Color(0xFFE6E6FF)
+                color = Color(0xFFFFFFFF)
             )
             Text(
                 "纯离线全能图像工具 · 格式转换 / EXIF / 画布 / 矢量化 / 水印",
                 color = GlassOnBackground,
-                fontSize = 14.sp,
+                fontSize = 15.sp,
                 modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
             )
         }
         item {
             Column(Modifier.fillMaxWidth()) {
-                FEATURES.forEachIndexed { index, feature ->
+                FEATURES.forEach { feature ->
                     FeatureCard(feature) { onNavigate(feature.screen) }
-                    if (index % 2 == 1) Spacer(Modifier.height(12.dp)) else Spacer(Modifier.height(12.dp))
                 }
             }
         }
@@ -214,16 +288,31 @@ private fun Home(
         if (recentFiles.isEmpty()) {
             item {
                 GlassCard {
-                    Text("暂无最近文件", color = GlassOnBackground, fontSize = 13.sp)
+                    Text("暂无最近文件，完成一次转换/编辑后文件会出现在这里", color = GlassOnBackground, fontSize = 13.sp)
                 }
             }
         } else {
-            items(recentFiles, key = { it.first }) { (_, name) ->
-                GlassCard(Modifier.padding(bottom = 8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.PhotoLibrary, contentDescription = null, tint = GlassPrimary)
-                        Spacer(Modifier.width(10.dp))
-                        Text(name, color = GlassOnBackground, fontSize = 14.sp, maxLines = 1)
+            // 与相册一致：缩略图网格（二级）→ 点击进查看器（一级）
+            recentFiles.chunked(3).forEach { rowItems ->
+                item(key = "recent_${rowItems.first().first}") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        rowItems.forEach { (uri, name) ->
+                            RecentThumb(
+                                uri = Uri.parse(uri),
+                                name = name,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                onNavigate(Screen.RecentViewer(Uri.parse(uri), name))
+                            }
+                        }
+                        repeat(3 - rowItems.size) {
+                            Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
             }
@@ -234,6 +323,59 @@ private fun Home(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 8.dp)
+        )
+    }
+}
+
+@Composable
+private fun RecentThumb(
+    uri: Uri,
+    name: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val bmp by produceState<Bitmap?>(initialValue = null, key1 = uri) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { decodeThumb(context, uri, 300) }.getOrNull()
+        }
+    }
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(GlassSurface)
+            .border(1.dp, Color(0x59FFFFFF), RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(androidx.compose.ui.graphics.Color(0x45FFFFFF)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp!!.asImageBitmap(),
+                    contentDescription = name,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(Icons.Filled.PhotoLibrary, contentDescription = null, tint = GlassPrimary, modifier = Modifier.size(22.dp))
+            }
+        }
+        Text(
+            name,
+            color = Color(0xFFFFFFFF),
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp)
         )
     }
 }
@@ -252,8 +394,8 @@ private fun LiquidGlassShortcutBar(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(28.dp))
-            .background(androidx.compose.ui.graphics.Color(0x59FFFFFF))
-            .border(1.dp, Color(0x40FFFFFF), RoundedCornerShape(28.dp))
+            .background(androidx.compose.ui.graphics.Color(0xA6FFFFFF))
+            .border(1.dp, Color(0x59FFFFFF), RoundedCornerShape(28.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -265,8 +407,8 @@ private fun LiquidGlassShortcutBar(
                     .padding(horizontal = 14.dp, vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Icon(icon, contentDescription = label, tint = Color(0xFFE6E6FF), modifier = Modifier.size(22.dp))
-                Text(label, color = GlassOnBackground, fontSize = 10.sp, modifier = Modifier.padding(top = 2.dp))
+                Icon(icon, contentDescription = label, tint = Color(0xFFFFFFFF), modifier = Modifier.size(22.dp))
+                Text(label, color = GlassOnBackground, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
             }
         }
     }
@@ -279,8 +421,8 @@ private fun FeatureCard(feature: Feature, onClick: () -> Unit) {
             .fillMaxWidth()
             .padding(vertical = 6.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(androidx.compose.ui.graphics.Color(0x40FFFFFF))
-            .border(1.dp, Color(0x39FFFFFF), RoundedCornerShape(18.dp))
+            .background(androidx.compose.ui.graphics.Color(0xA6FFFFFF))
+            .border(1.dp, Color(0x59FFFFFF), RoundedCornerShape(18.dp))
             .clickable(onClick = onClick)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -289,15 +431,15 @@ private fun FeatureCard(feature: Feature, onClick: () -> Unit) {
             modifier = Modifier
                 .size(44.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(Color(0x33FFFFFF)),
+                .background(androidx.compose.ui.graphics.Color(0x59FFFFFF)),
             contentAlignment = Alignment.Center
         ) {
             Icon(feature.icon, contentDescription = null, tint = GlassPrimary, modifier = Modifier.size(24.dp))
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(feature.title, color = Color(0xFFE6E6FF), fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-            Text(feature.subtitle, color = GlassOnBackground, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+            Text(feature.title, color = Color(0xFFFFFFFF), fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(feature.subtitle, color = GlassOnBackground, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
         }
     }
 }

@@ -164,10 +164,30 @@ object FileSaver {
                     val f = File(uri.path ?: "")
                     SourceInfo(f.name.substringBeforeLast('.', "image"), relativePathOf(f.absolutePath))
                 }
-                uri.scheme == "content" -> resolveContentSource(context, uri)
+                uri.scheme == "content" -> resolveContentSource(context, normalizeMediaUri(context, uri))
                 else -> SourceInfo(nameFromUri(uri), null)
             }
         }.getOrNull() ?: uri.let { SourceInfo(nameFromUri(it), null) }
+    }
+
+    /**
+     * Photo Picker（PickVisualMedia）返回的 URI 可能是 `content://media/picker/...`、`
+     * content://com.google.android.apps.photos/...` 等，这类 URI 无法直接查 MediaStore
+     * 的 RELATIVE_PATH。这里从 picker URI 查询它的真实 `_ID`，并规范化为标准的
+     * `content://media/external/images/media/<id>`，从而拿到源图所在目录。
+     */
+    private fun normalizeMediaUri(context: Context, uri: Uri): Uri {
+        if (uri.scheme != "content") return uri
+        val path = uri.path ?: return uri
+        val pickerLike = uri.authority == "media" || uri.authority == "com.google.android.apps.photos"
+        if (!pickerLike || !path.contains("/picker")) return uri
+        val id: Long = runCatching {
+            context.contentResolver.query(
+                uri, arrayOf(MediaStore.Images.Media._ID), null, null, null
+            )?.use { c -> if (c.moveToFirst()) c.getLong(0) else -1L }
+        }.getOrDefault(-1L) ?: -1L
+        if (id <= 0) return uri
+        return ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
     }
 
     private fun relativePathOf(absolutePath: String): String? {

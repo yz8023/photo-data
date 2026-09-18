@@ -49,14 +49,14 @@ fun AppScaffold(
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "back",
-                        tint = Color(0xFFE6E6FF)
+                        tint = Color(0xFFFFFFFF)
                     )
                 }
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFE6E6FF)
+                    color = Color(0xFFFFFFFF)
                 )
             }
             Box(
