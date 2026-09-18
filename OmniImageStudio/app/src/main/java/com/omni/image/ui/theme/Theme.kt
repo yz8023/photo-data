@@ -20,11 +20,17 @@ private val OmniColorScheme = darkColorScheme(
     onBackground = GlassOnBackground,
     onSurface = GlassOnSurface,
     error = GlassError,
+    errorContainer = Color(0xFF3B1A1F),
+    onError = Color(0xFFFFD7D7),
+    onErrorContainer = Color(0xFFFFDAD6),
+    outline = GlassOutline,
+    outlineVariant = Color(0x59FFFFFF),
     surfaceContainer = GlassSurfaceStrong,
     surfaceContainerLow = Color(0x45FFFFFF),
     surfaceContainerLowest = Color(0x2EFFFFFF),
     surfaceContainerHigh = Color(0x4DFFFFFF),
-    surfaceContainerHighest = Color(0x5AFFFFFF)
+    surfaceContainerHighest = Color(0x5AFFFFFF),
+    onSurfaceVariant = GlassMuted
 )
 
 private val OmniShapes = Shapes(

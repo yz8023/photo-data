@@ -7,6 +7,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import com.omni.image.engine.ConvertEngine
@@ -156,40 +157,68 @@ object FileSaver {
         val relativePath: String?
     )
 
-    private fun resolveSource(context: Context, uri: Uri): SourceInfo? {
+    private fun resolveSource(context: Context, uri: Uri): SourceInfo {
         return runCatching {
-            val isMedia = uri.scheme == "content" && (uri.authority == "media" ||
-                uri.toString().contains("/media/external/images/"))
-            if (!isMedia) {
-                return@runCatching SourceInfo(nameFromUri(uri), null)
+            when {
+                uri.scheme == "file" -> {
+                    val f = File(uri.path ?: "")
+                    SourceInfo(f.name.substringBeforeLast('.', "image"), relativePathOf(f.absolutePath))
+                }
+                uri.scheme == "content" -> resolveContentSource(context, uri)
+                else -> SourceInfo(nameFromUri(uri), null)
             }
-            var base = nameFromUri(uri)
-            var relPath: String? = null
-            context.contentResolver.query(
-                uri,
-                arrayOf(
-                    MediaStore.Images.Media.DISPLAY_NAME,
-                    MediaStore.Images.Media.RELATIVE_PATH,
-                    MediaStore.Images.Media.DATA
-                ),
-                null, null, null
-            )?.use { c ->
+        }.getOrNull() ?: uri.let { SourceInfo(nameFromUri(it), null) }
+    }
+
+    private fun relativePathOf(absolutePath: String): String? {
+        val storage = Environment.getExternalStorageDirectory().absolutePath
+        val idx = absolutePath.indexOf(storage)
+        if (idx < 0) return null
+        val rel = absolutePath.substring(idx + storage.length).removePrefix("/")
+        val dir = rel.substringBeforeLast('/', rel)
+        return if (dir.isEmpty()) null else "$dir/" // trailing slash, MediaStore RELATIVE_PATH 约定
+    }
+
+    private fun resolveContentSource(context: Context, uri: Uri): SourceInfo {
+        var base = nameFromUri(uri)
+        var relPath: String? = null
+        val queried: Boolean = runCatching {
+            val projection = arrayOf(
+                MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.RELATIVE_PATH,
+                MediaStore.Images.Media.DATA
+            )
+            val cursor = context.contentResolver.query(uri, projection, null, null, null) ?: return@runCatching false
+            cursor.use { c ->
                 if (c.moveToFirst()) {
                     c.getString(0)?.let { if (it.isNotBlank()) base = it.substringBeforeLast('.', it) }
                     relPath = c.getString(1)
-                    if (relPath.isNullOrBlank() && Build.VERSION.SDK_INT < 29) {
-                        c.getString(2)?.let { path ->
-                            File(path).parentFile?.absolutePath?.let { dir ->
-                                val idx = dir.indexOf("/DCIM/")
-                                if (idx >= 0) relPath = dir.substring(idx + 1)
-                                else relPath = null
-                            }
-                        }
+                    if (relPath.isNullOrBlank()) {
+                        c.getString(2)?.let { data -> relPath = relativePathOf(data) }
                     }
                 }
             }
-            SourceInfo(base, relPath)
-        }.getOrNull() ?: uri.let { SourceInfo(nameFromUri(it), null) }
+            true
+        }.getOrDefault(false)
+
+        if (!queried || relPath.isNullOrBlank()) {
+            // photo picker / DownloadsProvider 等 authority 无法直接查 RELATIVE_PATH，
+            // 尝试通过 MediaStore 全量匹配 DISPLAY_NAME 补齐相对路径提示。
+            val name = "${base.takeLast(40)}"
+            relPath = relPath ?: queryRelativePathByName(context, name)
+        }
+        return SourceInfo(base, relPath)
+    }
+
+    private fun queryRelativePathByName(context: Context, displayName: String): String? {
+        return runCatching {
+            val projection = arrayOf(MediaStore.Images.Media.RELATIVE_PATH)
+            val selection = "${MediaStore.Images.Media.DISPLAY_NAME}=?"
+            context.contentResolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection, selection, arrayOf(displayName), "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }.getOrNull()
     }
 
     private fun nameFromUri(uri: Uri): String {

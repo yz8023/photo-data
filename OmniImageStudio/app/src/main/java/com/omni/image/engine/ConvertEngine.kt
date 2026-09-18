@@ -4,8 +4,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
+import androidx.exifinterface.media.ExifInterface
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -49,7 +51,7 @@ object ConvertEngine {
 
     fun decodeUri(context: Context, uri: Uri, maxDim: Int = 4096): Bitmap? {
         return try {
-            if (Build.VERSION.SDK_INT >= 28) {
+            val bmp = if (Build.VERSION.SDK_INT >= 28) {
                 val source = ImageDecoder.createSource(context.contentResolver, uri)
                 ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
                     val sample = info.size.width.coerceAtLeast(info.size.height)
@@ -70,8 +72,49 @@ object ConvertEngine {
                     BitmapFactory.decodeStream(it, null, opts)
                 }
             }
+            if (bmp != null) applyExifOrientation(context, uri, bmp) else null
         } catch (e: Exception) {
             null
+        }
+    }
+
+    /** 解析 EXIF 方向并按方向旋转/翻转，保证竖拍照片不倒置。 */
+    fun applyExifOrientation(context: Context, uri: Uri, bitmap: Bitmap): Bitmap {
+        return try {
+            val orientation = context.contentResolver.openInputStream(uri)?.use { ins ->
+                ExifInterface(ins).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            } ?: ExifInterface.ORIENTATION_NORMAL
+            when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> rotateBitmap(bitmap, 90f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> rotateBitmap(bitmap, 180f)
+                ExifInterface.ORIENTATION_ROTATE_270 -> rotateBitmap(bitmap, 270f)
+                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> {
+                    transformBitmap(bitmap, Matrix().apply { postScale(-1f, 1f) })
+                }
+                ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+                    val m = Matrix().apply { postScale(1f, -1f) }
+                    transformBitmap(bitmap, m)
+                }
+                else -> bitmap
+            }
+        } catch (e: Exception) {
+            bitmap
+        }
+    }
+
+    private fun rotateBitmap(bmp: Bitmap, deg: Float): Bitmap {
+        return transformBitmap(bmp, Matrix().apply { postRotate(deg) })
+    }
+
+    private fun transformBitmap(bmp: Bitmap, m: Matrix): Bitmap {
+        return try {
+            val out = Bitmap.createBitmap(
+                bmp, 0, 0, bmp.width, bmp.height, m, true
+            )
+            if (out !== bmp) bmp.recycle()
+            out
+        } catch (e: java.lang.OutOfMemoryError) {
+            bmp
         }
     }
 
