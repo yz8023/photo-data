@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">OmniImage Studio</string>
+    <string name="home_title">OmniImage Studio</string>
+    <string name="home_subtitle">纯离线全能图像工具</string>
+</resources>
